@@ -1,159 +1,175 @@
-import csv
-from datetime import datetime, date
+ import csv
+import os
+from datetime import datetime, timedelta
 
 class Event:
-    def __init__(self, event_id, name, date, time, event_type, location=""):
-        self.event_id = event_id
+    def __init__(self, id, name, date, time, type, location="", recurrence=None):
+        self.id = id
         self.name = name
         self.date = date  # DD-MM-YYYY
         self.time = time  # HH:MM
-        self.event_type = event_type
+        self.type = type
         self.location = location
+        self.recurrence = recurrence  # None, "weekly", "monthly"
 
     def show(self):
-        print(f"[{self.event_id}] {self.name} | {self.date} {self.time} | {self.event_type}" + (f" | {self.location}" if self.location else ""))
+        print(f"[{self.id}] {self.name} | {self.date} {self.time} | {self.type} | {self.location} | Recurs: {self.recurrence if self.recurrence else 'No'}")
 
 class EventManager:
     def __init__(self):
         self.events = []
-        self.event_id_counter = 1
-    
-    def add_event(self, name, date, time, event_type, location=""):
-        for event in self.events:
-            if event.name == name and event.date == date and event.time == time:
-                print("Error: Duplicate event!")
-                return
-        event = Event(self.event_id_counter, name, date, time, event_type, location)
-        if not self.check_conflict(event):
-            self.events.append(event)
-            self.event_id_counter += 1
-            print(f"Event '{name}' added successfully!")
+        self.next_id = 1
 
-    def edit_event(self, event_id, name=None, date=None, time=None, event_type=None, location=None):
-        event = next((e for e in self.events if e.event_id == event_id), None)
-        if event:
-            event.name = name if name else event.name
-            event.date = date if date else event.date
-            event.time = time if time else event.time
-            event.event_type = event_type if event_type else event.event_type
-            event.location = location if location else event.location
-            print(f"Event {event_id} updated successfully!")
-        else:
-            print("Error: Event not found.")
-    
-    def delete_event(self, event_id):
-        event = next((e for e in self.events if e.event_id == event_id), None)
-        if event:
-            self.events.remove(event)
-            print(f"Event {event_id} deleted successfully!")
-        else:
-            print("Error: Event not found.")
-    
-    def view_events(self, date=None):
-        events_to_show = self.events if not date else [e for e in self.events if e.date == date]
-        if events_to_show:
-            for event in events_to_show:
-                event.show()
-        else:
-            print("No events found.")
+    def validate_date_time(self, date_str, time_str):
+        try:
+            datetime.strptime(date_str, "%d-%m-%Y")
+            datetime.strptime(time_str, "%H:%M")
+            return True
+        except ValueError:
+            return False
+
+    def add_event(self, name, date, time, type, location="", recurrence=None):
+        if not self.validate_date_time(date, time):
+            print("Invalid date or time format.")
+            return
+
+        for ev in self.events:
+            if ev.date == date and ev.time == time:
+                print("Conflict detected with event:", ev.name)
+                return
+
+        event = Event(self.next_id, name, date, time, type, location, recurrence)
+        self.events.append(event)
+        self.next_id += 1
+        print("Event added successfully.")
+
+    def edit_event(self, event_id, **kwargs):
+        for ev in self.events:
+            if ev.id == event_id:
+                for key, value in kwargs.items():
+                    if hasattr(ev, key) and value:
+                        setattr(ev, key, value)
+                print("Event updated.")
+                return
+        print("Event not found.")
+
+    def delete_event(self, identifier):
+        for ev in self.events:
+            if str(ev.id) == str(identifier) or ev.name.lower() == str(identifier).lower():
+                self.events.remove(ev)
+                print("Event deleted.")
+                return
+        print("Event not found.")
+
+    def view_events_by_date(self, date):
+        filtered = [ev for ev in self.events if ev.date == date]
+        filtered.sort(key=lambda e: e.time)
+        for ev in filtered:
+            ev.show()
 
     def today_events(self):
-        today = datetime.today().strftime("%d-%m-%Y")
-        todays_events = [e for e in self.events if e.date == today]
-        if todays_events:
-            print("\nToday's Events:")
-            for e in todays_events:
-                e.show()
-        else:
-            print("No events today.")
+        today = datetime.now().strftime("%d-%m-%Y")
+        self.view_events_by_date(today)
 
     def search_events(self, keyword):
-        keyword = keyword.lower()
-        found = [e for e in self.events if keyword in e.name.lower() or keyword in e.event_type.lower()]
-        if found:
-            for e in found:
-                e.show()
-        else:
-            print("No events found for search.")
+        for ev in self.events:
+            if keyword.lower() in ev.name.lower() or keyword.lower() in ev.type.lower():
+                ev.show()
 
-    def check_conflict(self, new_event):
-        for event in self.events:
-            if event.date == new_event.date:
-                t1 = datetime.strptime(event.time, "%H:%M")
-                t2 = datetime.strptime(new_event.time, "%H:%M")
-                if t1 == t2:
-                    print(f"Conflict: '{event.name}' overlaps with '{new_event.name}'")
-                    return True
-        return False
+    def send_reminders(self):
+        for ev in self.events:
+            event_time = datetime.strptime(ev.date + " " + ev.time, "%d-%m-%Y %H:%M")
+            delta = event_time - datetime.now()
+            if 0 < delta.total_seconds() <= 3600:
+                print(f"Reminder: {ev.name} at {ev.time} on {ev.date}")
+
+    def handle_recurring_events(self):
+        new_events = []
+        for ev in self.events:
+            if ev.recurrence == "weekly":
+                dt = datetime.strptime(ev.date, "%d-%m-%Y") + timedelta(weeks=1)
+                new_events.append(Event(self.next_id, ev.name, dt.strftime("%d-%m-%Y"), ev.time, ev.type, ev.location, ev.recurrence))
+                self.next_id += 1
+            elif ev.recurrence == "monthly":
+                dt = datetime.strptime(ev.date, "%d-%m-%Y") + timedelta(days=30)
+                new_events.append(Event(self.next_id, ev.name, dt.strftime("%d-%m-%Y"), ev.time, ev.type, ev.location, ev.recurrence))
+                self.next_id += 1
+        self.events.extend(new_events)
 
 class PersistentStorage:
-    def save_events(self, events):
-        with open('events.csv', 'w', newline='') as file:
-            writer = csv.writer(file)
-            for e in events:
-                writer.writerow([e.event_id, e.name, e.date, e.time, e.event_type, e.location])
-        print("Events saved.")
+    FILE = "events.csv"
 
-    def load_events(self):
+    @staticmethod
+    def save(events):
+        with open(PersistentStorage.FILE, "w", newline="") as f:
+            writer = csv.writer(f)
+            for ev in events:
+                writer.writerow([ev.id, ev.name, ev.date, ev.time, ev.type, ev.location, ev.recurrence])
+
+    @staticmethod
+    def load():
         events = []
-        try:
-            with open('events.csv', 'r') as file:
-                reader = csv.reader(file)
+        if os.path.exists(PersistentStorage.FILE):
+            with open(PersistentStorage.FILE, "r") as f:
+                reader = csv.reader(f)
                 for row in reader:
-                    if row:  # skip empty rows
-                        events.append(Event(int(row[0]), row[1], row[2], row[3], row[4], row[5]))
-        except FileNotFoundError:
-            pass
+                    if row:
+                        events.append(Event(int(row[0]), row[1], row[2], row[3], row[4], row[5], row[6] if row[6] else None))
         return events
-
-class Admin:
-    def __init__(self, username, password):
-        self.username = username
-        self.password = password
-    def authenticate(self, u, p):
-        return self.username == u and self.password == p
 
 def main():
     manager = EventManager()
-    storage = PersistentStorage()
-    manager.events = storage.load_events()
+    manager.events = PersistentStorage.load()
+    if manager.events:
+        manager.next_id = max(ev.id for ev in manager.events) + 1
 
     while True:
-        print("\n1. Add Event\n2. Edit Event\n3. Delete Event\n4. View Events\n5. Today's Events\n6. Search Events\n7. Save & Exit")
-        choice = input("Choose: ")
+        print("\n1. Add Event  2. Edit Event  3. Delete Event  4. View Events by Date")
+        print("5. Today’s Events  6. Search  7. Send Reminders  8. Handle Recurring  9. Exit")
+        choice = input("Enter choice: ")
 
         if choice == "1":
-            n = input("Name: "); d = input("Date (DD-MM-YYYY): ")
-            t = input("Time (HH:MM): "); ty = input("Type: ")
-            l = input("Location: ")
-            manager.add_event(n, d, t, ty, l)
+            name = input("Name: ")
+            date = input("Date (DD-MM-YYYY): ")
+            time = input("Time (HH:MM): ")
+            type = input("Type: ")
+            location = input("Location: ")
+            recurrence = input("Recurrence (weekly/monthly/none): ").lower()
+            recurrence = recurrence if recurrence in ["weekly", "monthly"] else None
+            manager.add_event(name, date, time, type, location, recurrence)
 
         elif choice == "2":
-            i = int(input("Event ID: "))
-            n = input("New Name: ") or None
-            d = input("New Date: ") or None
-            t = input("New Time: ") or None
-            ty = input("New Type: ") or None
-            l = input("New Location: ") or None
-            manager.edit_event(i, n, d, t, ty, l)
+            event_id = int(input("Event ID to edit: "))
+            name = input("New name (leave blank if no change): ")
+            date = input("New date (DD-MM-YYYY): ")
+            time = input("New time (HH:MM): ")
+            manager.edit_event(event_id, name=name, date=date, time=time)
 
         elif choice == "3":
-            i = int(input("Event ID: "))
-            manager.delete_event(i)
+            identifier = input("Enter Event ID or Name to delete: ")
+            manager.delete_event(identifier)
 
         elif choice == "4":
-            d = input("Date (leave blank for all): ") or None
-            manager.view_events(d)
+            date = input("Enter date (DD-MM-YYYY): ")
+            manager.view_events_by_date(date)
 
         elif choice == "5":
             manager.today_events()
 
         elif choice == "6":
-            keyword = input("Enter keyword: ")
+            keyword = input("Enter keyword to search: ")
             manager.search_events(keyword)
 
         elif choice == "7":
-            storage.save_events(manager.events)
+            manager.send_reminders()
+
+        elif choice == "8":
+            manager.handle_recurring_events()
+            print("Recurring events added.")
+
+        elif choice == "9":
+            PersistentStorage.save(manager.events)
+            print("Events saved. Exiting...")
             break
 
 if __name__ == "__main__":
